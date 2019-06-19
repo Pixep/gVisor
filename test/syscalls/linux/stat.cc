@@ -14,9 +14,12 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/stat.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
+#include <sys/types.h>
 #include <unistd.h>
+
 #include <string>
 #include <vector>
 
@@ -552,6 +555,62 @@ TEST(SimpleStatTest, AnonDeviceAllocatesUniqueInodesAcrossSaveRestore) {
 
   EXPECT_EQ(st1_after.st_ino, st1.st_ino);
   EXPECT_EQ(st2_after.st_ino, st2.st_ino);
+}
+
+#ifndef SYS_statx
+#if defined(__x86_64__)
+#define SYS_statx 397
+#else
+#error "Unknown architecture"
+#endif
+#endif  // SYS_statx
+
+int statx(int dirfd, const char *pathname, int flags, unsigned int mask,
+          struct statx *statxbuf) {
+  return syscall(SYS_statx, pathname, flags, mask, statxbuf);
+}
+
+TEST_F(StatTest, StatxAbsPath) {
+  SKIP_IF(statx(-1, nullptr, 0, 0, 0) < 0 && errno == ENOSYS);
+
+  struct statx stx;
+  EXPECT_THAT(statx(0, test_file_name_.c_str(), 0, STATX_ALL, &stx),
+              SyscallSucceeds());
+  EXPECT_TRUE(S_ISREG(stx.stx_mode));
+}
+
+TEST_F(StatTest, StatxRelPathDirFD) {
+  SKIP_IF(statx(-1, nullptr, 0, 0, 0) < 0 && errno == ENOSYS);
+
+  struct statx stx;
+  auto const dirfd =
+      ASSERT_NO_ERRNO_AND_VALUE(Open(GetAbsoluteTestTmpdir(), O_RDONLY));
+  auto filename = std::string(Basename(test_file_name_));
+
+  EXPECT_THAT(statx(dirfd.get(), filename.c_str(), 0, STATX_ALL, &stx),
+              SyscallSucceeds());
+  EXPECT_TRUE(S_ISREG(stx.stx_mode));
+}
+
+TEST_F(StatTest, StatxRelPathCwd) {
+  SKIP_IF(statx(-1, nullptr, 0, 0, 0) < 0 && errno == ENOSYS);
+
+  ASSERT_THAT(chdir(GetAbsoluteTestTmpdir().c_str()), SyscallSucceeds());
+  auto filename = std::string(Basename(test_file_name_));
+  struct statx stx;
+  EXPECT_THAT(statx(AT_FDCWD, filename.c_str(), 0, STATX_ALL, &stx),
+              SyscallSucceeds());
+  EXPECT_TRUE(S_ISREG(stx.stx_mode));
+}
+
+TEST_F(StatTest, StatxEmptyPath) {
+  SKIP_IF(statx(-1, nullptr, 0, 0, 0) < 0 && errno == ENOSYS);
+
+  const auto fd = ASSERT_NO_ERRNO_AND_VALUE(Open(test_file_name_, O_RDONLY));
+  struct statx stx;
+  EXPECT_THAT(statx(fd.get(), "", AT_EMPTY_PATH, STATX_ALL, &stx),
+              SyscallSucceeds());
+  EXPECT_TRUE(S_ISREG(stx.stx_mode));
 }
 
 }  // namespace
