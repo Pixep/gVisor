@@ -103,6 +103,9 @@ const (
 	HeapProfile     = "Profile.HeapProfile"
 	StartTrace      = "Profile.StartTrace"
 	StopTrace       = "Profile.StopTrace"
+
+	// Logging related commands (see logging.go for more details).
+	ChangeLogging = "Logging.Change"
 )
 
 // ControlSocketAddr generates an abstract unix socket name for the given ID.
@@ -143,6 +146,7 @@ func newController(fd int, l *Loader) (*controller, error) {
 	}
 
 	srv.Register(&debug{})
+	srv.Register(&control.Logging{})
 	if l.conf.ProfileEnable {
 		srv.Register(&control.Profile{})
 	}
