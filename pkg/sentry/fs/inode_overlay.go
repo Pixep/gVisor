@@ -217,6 +217,9 @@ func overlayCreate(ctx context.Context, o *overlayEntry, parent *Dirent, name st
 		return nil, err
 	}
 
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
+
 	// Take another reference on the upper file's inode, which will be
 	// owned by the overlay entry.
 	upperFile.Dirent.Inode.IncRef()
@@ -254,7 +257,7 @@ func overlayCreate(ctx context.Context, o *overlayEntry, parent *Dirent, name st
 	// Create a new overlay file that wraps the upper file.
 	flags.Pread = upperFile.Flags().Pread
 	flags.Pwrite = upperFile.Flags().Pwrite
-	overlayFile := NewFile(ctx, overlayDirent, flags, &overlayFileOperations{upper: upperFile})
+	overlayFile := NewFile(ctx, overlayDirent, flags, &overlayFileOperations{overlay: entry, upper: upperFile})
 
 	return overlayFile, nil
 }
@@ -265,7 +268,12 @@ func overlayCreateDirectory(ctx context.Context, o *overlayEntry, parent *Dirent
 	if err := copyUpLockedForRename(ctx, parent); err != nil {
 		return err
 	}
-	return o.upper.InodeOperations.CreateDirectory(ctx, o.upper, name, perm)
+	if err := o.upper.InodeOperations.CreateDirectory(ctx, o.upper, name, perm); err != nil {
+		return err
+	}
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
+	return nil
 }
 
 func overlayCreateLink(ctx context.Context, o *overlayEntry, parent *Dirent, oldname string, newname string) error {
@@ -273,7 +281,12 @@ func overlayCreateLink(ctx context.Context, o *overlayEntry, parent *Dirent, old
 	if err := copyUpLockedForRename(ctx, parent); err != nil {
 		return err
 	}
-	return o.upper.InodeOperations.CreateLink(ctx, o.upper, oldname, newname)
+	if err := o.upper.InodeOperations.CreateLink(ctx, o.upper, oldname, newname); err != nil {
+		return err
+	}
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
+	return nil
 }
 
 func overlayCreateHardLink(ctx context.Context, o *overlayEntry, parent *Dirent, target *Dirent, name string) error {
@@ -285,7 +298,12 @@ func overlayCreateHardLink(ctx context.Context, o *overlayEntry, parent *Dirent,
 	if err := copyUpLockedForRename(ctx, target); err != nil {
 		return err
 	}
-	return o.upper.InodeOperations.CreateHardLink(ctx, o.upper, target.Inode.overlay.upper, name)
+	if err := o.upper.InodeOperations.CreateHardLink(ctx, o.upper, target.Inode.overlay.upper, name); err != nil {
+		return err
+	}
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
+	return nil
 }
 
 func overlayCreateFifo(ctx context.Context, o *overlayEntry, parent *Dirent, name string, perm FilePermissions) error {
@@ -293,7 +311,12 @@ func overlayCreateFifo(ctx context.Context, o *overlayEntry, parent *Dirent, nam
 	if err := copyUpLockedForRename(ctx, parent); err != nil {
 		return err
 	}
-	return o.upper.InodeOperations.CreateFifo(ctx, o.upper, name, perm)
+	if err := o.upper.InodeOperations.CreateFifo(ctx, o.upper, name, perm); err != nil {
+		return err
+	}
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
+	return nil
 }
 
 func overlayRemove(ctx context.Context, o *overlayEntry, parent *Dirent, child *Dirent) error {
@@ -318,6 +341,8 @@ func overlayRemove(ctx context.Context, o *overlayEntry, parent *Dirent, child *
 	if child.Inode.overlay.lowerExists {
 		return overlayCreateWhiteout(o.upper, child.name)
 	}
+	// We've removed from the directory so we must drop the cache.
+	o.markDirectoryDirty()
 	return nil
 }
 
@@ -395,6 +420,8 @@ func overlayRename(ctx context.Context, o *overlayEntry, oldParent *Dirent, rena
 	if renamed.Inode.overlay.lowerExists {
 		return overlayCreateWhiteout(oldParent.Inode.overlay.upper, oldName)
 	}
+	// We've changed the directory so we must drop the cache.
+	o.markDirectoryDirty()
 	return nil
 }
 
@@ -410,6 +437,9 @@ func overlayBind(ctx context.Context, o *overlayEntry, parent *Dirent, name stri
 	if err != nil {
 		return nil, err
 	}
+
+	// We've added to the directory so we must drop the cache.
+	o.markDirectoryDirty()
 
 	// Grab the inode and drop the dirent, we don't need it.
 	inode := d.Inode
@@ -454,7 +484,7 @@ func overlayGetFile(ctx context.Context, o *overlayEntry, d *Dirent, flags FileF
 		}
 		flags.Pread = upper.Flags().Pread
 		flags.Pwrite = upper.Flags().Pwrite
-		f, err := NewFile(ctx, d, flags, &overlayFileOperations{upper: upper}), nil
+		f, err := NewFile(ctx, d, flags, &overlayFileOperations{overlay: o, upper: upper}), nil
 		o.copyMu.RUnlock()
 		return f, err
 	}
@@ -467,7 +497,7 @@ func overlayGetFile(ctx context.Context, o *overlayEntry, d *Dirent, flags FileF
 	flags.Pread = lower.Flags().Pread
 	flags.Pwrite = lower.Flags().Pwrite
 	o.copyMu.RUnlock()
-	return NewFile(ctx, d, flags, &overlayFileOperations{lower: lower}), nil
+	return NewFile(ctx, d, flags, &overlayFileOperations{overlay: o, lower: lower}), nil
 }
 
 func overlayUnstableAttr(ctx context.Context, o *overlayEntry) (UnstableAttr, error) {

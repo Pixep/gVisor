@@ -62,6 +62,8 @@ func overlayFile(ctx context.Context, inode *Inode, flags FileFlags) (*File, err
 //
 // +stateify savable
 type overlayFileOperations struct {
+	overlay *overlayEntry
+
 	// upperMu protects upper below. In contrast lower is stable.
 	upperMu sync.Mutex `state:"nosave"`
 
@@ -85,12 +87,6 @@ type overlayFileOperations struct {
 	// protected by File.mu of the owning file, which is held during
 	// Readdir and Seek calls.
 	dirCursor string
-
-	// dirCacheMu protects dirCache.
-	dirCacheMu sync.RWMutex `state:"nosave"`
-
-	// dirCache is cache of DentAttrs from upper and lower Inodes.
-	dirCache *SortedDentryMap
 }
 
 // Release implements FileOperations.Release.
@@ -184,40 +180,44 @@ func (f *overlayFileOperations) Readdir(ctx context.Context, file *File, seriali
 	}
 
 	// Otherwise proceed with usual overlay readdir.
-	o := file.Dirent.Inode.overlay
-
-	// readdirEntries holds o.copyUpMu to ensure that copy-up does not
-	// occur while calculating the readir results.
-	//
-	// However, it is possible for a copy-up to occur after the call to
-	// readdirEntries, but before setting f.dirCache. This is OK, since
-	// copy-up only does not change the children in a way that would affect
-	// the children returned in dirCache. Copy-up only moves
-	// files/directories between layers in the overlay.
-	//
-	// It is also possible for Readdir to race with a Create operation
-	// (which may trigger a copy-up during it's execution). Depending on
-	// whether the Create happens before or after the readdirEntries call,
-	// the newly created file may or may not appear in the readdir results.
-	// But this can only be caused by a real race between readdir and
-	// create syscalls, so it's also OK.
-	dirCache, err := readdirEntries(ctx, o)
-	if err != nil {
-		return file.Offset(), err
-	}
-
-	f.dirCacheMu.Lock()
-	f.dirCache = dirCache
-	f.dirCacheMu.Unlock()
-
 	return DirentReaddir(ctx, file.Dirent, f, root, dirCtx, file.Offset())
 }
 
 // IterateDir implements DirIterator.IterateDir.
 func (f *overlayFileOperations) IterateDir(ctx context.Context, dirCtx *DirCtx, offset int) (int, error) {
-	f.dirCacheMu.RLock()
-	n, err := GenericReaddir(dirCtx, f.dirCache)
-	f.dirCacheMu.RUnlock()
+	o := f.overlay
+
+	o.dirCacheMu.RLock()
+	if o.dirCache != nil {
+		n, err := GenericReaddir(dirCtx, o.dirCache)
+		o.dirCacheMu.RUnlock()
+		return offset + n, err
+	}
+	o.dirCacheMu.RUnlock()
+
+	// readdirEntries holds o.copyUpMu to ensure that copy-up does not
+	// occur while calculating the readdir results.
+	//
+	// However, it is possible for a copy-up to occur after the call to
+	// readdirEntries, but before setting o.dirCache. This is OK, since
+	// copy-up does not change the children in a way that would affect the
+	// children returned in dirCache. Copy-up only moves files/directories
+	// between layers in the overlay.
+	//
+	// We must hold dirCacheMu around both readdirEntries and setting
+	// o.dirCache to synchronize with dirCache invalidations done by
+	// Create, Remove, Rename.
+	o.dirCacheMu.Lock()
+	dirCache, err := readdirEntries(ctx, o)
+	if err != nil {
+		o.dirCacheMu.Unlock()
+		return offset, err
+	}
+	o.dirCache = dirCache
+	o.dirCacheMu.DowngradeLock()
+	n, err := GenericReaddir(dirCtx, o.dirCache)
+	o.dirCacheMu.RUnlock()
+
 	return offset + n, err
 }
 
