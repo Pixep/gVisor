@@ -121,8 +121,10 @@ func getClock(t *kernel.Task, clockID int32) (ktime.Clock, error) {
 	switch clockID {
 	case linux.CLOCK_REALTIME, linux.CLOCK_REALTIME_COARSE:
 		return t.Kernel().RealtimeClock(), nil
-	case linux.CLOCK_MONOTONIC, linux.CLOCK_MONOTONIC_COARSE, linux.CLOCK_MONOTONIC_RAW:
+	case linux.CLOCK_MONOTONIC, linux.CLOCK_MONOTONIC_COARSE,
+		linux.CLOCK_MONOTONIC_RAW, linux.CLOCK_BOOTTIME:
 		// CLOCK_MONOTONIC approximates CLOCK_MONOTONIC_RAW.
+		// CLOCK_BOOTTIME is equivalent to CLOCK_MONOTONIC, which already include save/restore time
 		return t.Kernel().MonotonicClock(), nil
 	case linux.CLOCK_PROCESS_CPUTIME_ID:
 		return t.ThreadGroup().CPUClock(), nil
