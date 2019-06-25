@@ -27,7 +27,7 @@ import (
 )
 
 // copyUp copies a file in an overlay from a lower filesystem to an
-// upper filesytem so that the file can be modified in the upper
+// upper filesystem so that the file can be modified in the upper
 // filesystem. Copying a file involves several steps:
 //
 // - All parent directories of the file are created in the upper

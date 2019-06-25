@@ -146,7 +146,7 @@ type Kernel struct {
 	// Linux does task CPU accounting on x86 (CONFIG_IRQ_TIME_ACCOUNTING),
 	// although Linux also uses scheduler timing information to improve
 	// resolution (kernel/sched/cputime.c:cputime_adjust()), which we can't do
-	// since "preeemptive" scheduling is managed by the Go runtime, which
+	// since "preemptive" scheduling is managed by the Go runtime, which
 	// doesn't provide this information.
 	//
 	// cpuClock is mutable, and is accessed using atomic memory operations.

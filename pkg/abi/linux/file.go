@@ -265,3 +265,10 @@ const (
 	FALLOC_FL_INSERT_RANGE   = 0x20
 	FALLOC_FL_UNSHARE_RANGE  = 0x40
 )
+
+// Constants related to renameat2(2).
+const (
+	RENAME_NOREPLACE = 0x01
+	RENAME_EXCHANGE  = 0x02
+	RENAME_WHITEOUT  = 0x04
+)

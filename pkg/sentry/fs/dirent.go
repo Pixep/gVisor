@@ -1497,10 +1497,16 @@ func mayDelete(ctx context.Context, dir, victim *Dirent) error {
 
 // Rename atomically converts the child of oldParent named oldName to a
 // child of newParent named newName.
-func Rename(ctx context.Context, root *Dirent, oldParent *Dirent, oldName string, newParent *Dirent, newName string) error {
+func Rename(ctx context.Context, root *Dirent, oldParent *Dirent, oldName string, newParent *Dirent, newName string, flags int) error {
 	if root == nil {
 		panic("Rename: root must not be nil")
 	}
+
+	// RENAME_EXCHANGE and RENAME_WHITEOUT not supported
+	if (flags&linux.RENAME_WHITEOUT || flags&linux.RENAME_EXCHANGE) {
+		return syscall.EINVAL
+	}
+
 	if oldParent == newParent && oldName == newName {
 		return nil
 	}
@@ -1574,6 +1580,11 @@ func Rename(ctx context.Context, root *Dirent, oldParent *Dirent, oldName string
 
 		// NOTE(b/111808347): We don't want to keep replaced alive
 		// across the Rename, so must call DecRef manually (no defer).
+
+		if flags&linux.RENAME_NOREPLACE {
+			replaced.DecRef()
+			return EEXIST
+		}
 
 		// Check that we can delete replaced.
 		if err := mayDelete(ctx, newParent, replaced); err != nil {

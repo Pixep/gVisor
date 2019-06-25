@@ -1856,7 +1856,7 @@ func Futimesat(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Sys
 	return 0, nil, utimes(t, dirFD, pathnameAddr, ts, true)
 }
 
-func renameAt(t *kernel.Task, oldDirFD kdefs.FD, oldAddr usermem.Addr, newDirFD kdefs.FD, newAddr usermem.Addr) error {
+func renameAt(t *kernel.Task, oldDirFD kdefs.FD, oldAddr usermem.Addr, newDirFD kdefs.FD, newAddr usermem.Addr, flags uint) error {
 	newPath, _, err := copyInPath(t, newAddr, false /* allowEmpty */)
 	if err != nil {
 		return err
@@ -1909,6 +1909,16 @@ func Renameat(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Sysc
 	newDirFD := kdefs.FD(args[2].Int())
 	newPathAddr := args[3].Pointer()
 	return 0, nil, renameAt(t, oldDirFD, oldPathAddr, newDirFD, newPathAddr)
+}
+
+// Renameat2 implements linux syscall renameat2(2).
+func Renameat2(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
+	oldDirFD := kdefs.FD(args[0].Int())
+	oldPathAddr := args[1].Pointer()
+	newDirFD := kdefs.FD(args[2].Int())
+	newPathAddr := args[3].Pointer()
+	flags := args[4].Uint()
+	return 0, nil, renameAt(t, oldDirFD, oldPathAddr, newDirFD, newPathAddr, flags)
 }
 
 // Fallocate implements linux system call fallocate(2).
